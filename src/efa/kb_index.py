@@ -45,6 +45,39 @@ def entry_terms(entry: dict) -> set[str]:
     return {t for t in terms if t}
 
 
+def case_terms(entry: dict) -> set[str]:
+    """案例参与索引的词项：设备名、现象与关键词的二元组，外加 ASCII 型号。"""
+    terms: set[str] = set()
+    for field in ("equipment", "symptom", "model"):
+        terms.update(bigrams(str(entry.get(field, ""))))
+    for kw in entry.get("keywords", []) or []:
+        terms.update(bigrams(str(kw)))
+        token = normalize(str(kw))
+        if len(token) >= 2 and token.isascii():
+            terms.add(token)
+    return {t for t in terms if t}
+
+
+def build_case_index(cases_path: str | Path) -> dict:
+    path = Path(cases_path)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    cases = raw.get("cases", []) if isinstance(raw, dict) else raw
+    postings: dict[str, list[str]] = {}
+    for item in cases:
+        cid = str(item.get("id", ""))
+        for term in case_terms(item):
+            postings.setdefault(term, []).append(cid)
+    return {
+        "schema": INDEX_SCHEMA,
+        "kb_file": path.name,
+        "kb_hash": file_hash(path),
+        "built_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "entries": len(cases),
+        "terms": len(postings),
+        "postings": {k: sorted(set(v)) for k, v in postings.items()},
+    }
+
+
 def build_index(kb_path: str | Path) -> dict:
     path = Path(kb_path)
     raw = json.loads(path.read_text(encoding="utf-8"))

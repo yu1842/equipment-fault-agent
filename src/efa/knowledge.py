@@ -112,12 +112,15 @@ class SearchHit:
 class KnowledgeBase:
     """故障案例知识库。加载失败时保持可用（空库 + 错误信息）。"""
 
-    def __init__(self, path: str | Path):
+    def __init__(self, path: str | Path, index_path: str | Path | None = None):
         self.path = Path(path)
+        self.index_path = Path(index_path) if index_path else self.path.parent / "case_index.json"
         self.cases: list[FaultCase] = []
         self.load_error: str = ""
         self.version: str = ""
         self.disclaimer: str = ""
+        self.index_status: str = "missing"  # fresh | stale | missing
+        self._postings: dict[str, list[str]] | None = None
         self.load()
 
     # ---------- 加载 ----------
@@ -148,6 +151,43 @@ class KnowledgeBase:
             self.disclaimer = str(raw.get("disclaimer", ""))
         if not self.cases:
             self.load_error = "知识库为空，请检查 data/fault_cases.json"
+            return
+        self._load_index()
+
+    def _load_index(self) -> None:
+        """案例索引与数据同版本才启用，否则退回线性扫描。"""
+        from . import kb_index
+
+        data = kb_index.load_index(self.index_path)
+        if data is None:
+            self.index_status = "missing"
+            self._postings = None
+            return
+        try:
+            current = kb_index.file_hash(self.path)
+        except OSError:
+            self.index_status = "stale"
+            self._postings = None
+            return
+        if data.get("kb_hash") != current:
+            self.index_status = "stale"
+            self._postings = None
+            return
+        self.index_status = "fresh"
+        self._postings = {str(k): list(v) for k, v in (data.get("postings") or {}).items()}
+
+    def _candidates(self, query: str) -> list[FaultCase]:
+        """有可用索引时先用倒排表缩小候选；无命中则退回全量。"""
+        if not self._postings:
+            return self.cases
+        from . import kb_index
+
+        hit_ids: set[str] = set()
+        for term in kb_index.query_terms(query):
+            hit_ids.update(self._postings.get(term, ()))
+        if not hit_ids:
+            return self.cases
+        return [case for case in self.cases if case.id in hit_ids]
 
     # ---------- 查询 ----------
 
