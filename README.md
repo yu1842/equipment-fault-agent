@@ -116,6 +116,7 @@ equipment-fault-agent/
 ├─ tests/                    # 86 个单元/界面/一致性测试
 ├─ docs/开发记录.md           # 开发与调试记录（问题 → 定位 → 修复 → 验证）
 ├─ docs/AI代码生成自检记录.md  # 三例完整闭环（含日志、截图、提交证据）
+├─ docs/代码审查与调试记录.md   # 代码审查、pdb 断点、三次测试、一次真实修复
 ├─ docs/evidence/            # 可复现日志与界面截图（capture_evidence 生成）
 └─ logs/、exports/            # 运行时生成（已 gitignore）
 ```

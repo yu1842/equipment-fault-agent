@@ -1,0 +1,55 @@
+> d:\ai_agent_project\sl\equipment-fault-agent\app.py(1)<module>()
+-> """程序入口。
+(Pdb) Breakpoint 1 at d:\ai_agent_project\sl\equipment-fault-agent\src\efa\agent.py:178
+(Pdb) Breakpoint 2 at d:\ai_agent_project\sl\equipment-fault-agent\src\efa\tools.py:240
+(Pdb) > d:\ai_agent_project\sl\equipment-fault-agent\src\efa\agent.py(178)ask()
+-> text, _ = self._ask_offline(question, records)
+(Pdb) '液压站压力上不去，油缸动作很慢'
+(Pdb) 'fault'
+(Pdb) > d:\ai_agent_project\sl\equipment-fault-agent\src\efa\tools.py(240)execute()
+-> result = fn(**arguments)
+(Pdb) 'search_fault_cases'
+(Pdb) {'query': '液压站压力上不去，油缸动作很慢'}
+(Pdb) > d:\ai_agent_project\sl\equipment-fault-agent\src\efa\tools.py(241)execute()
+-> ok = True
+(Pdb) 1
+(Pdb) 'EFA-001'
+(Pdb) > d:\ai_agent_project\sl\equipment-fault-agent\src\efa\tools.py(240)execute()
+-> result = fn(**arguments)
+(Pdb) 'get_case_detail'
+(Pdb) {'case_id': 'EFA-001'}
+(Pdb) > d:\ai_agent_project\sl\equipment-fault-agent\src\efa\tools.py(241)execute()
+-> ok = True
+(Pdb) '液压站'
+(Pdb) [模式] 离线规则  (本地检索)
+[耗时] 11 ms
+------------------------------------------------------------
+【离线规则模式】未调用大模型，以下结论由本地检索引擎生成。
+
+【判断】最接近的案例是 EFA-001（液压站），匹配度 0.701。
+
+【可能原因】
+1. 液压油量不足或吸油滤网堵塞，泵吸空
+2. 溢流阀调压弹簧疲劳或阀芯卡滞，设定压力漂移
+3. 液压泵内泄严重（柱塞泵配油盘磨损、齿轮泵端面磨损）
+4. 系统存在外泄漏，接头或油缸密封损坏
+
+【处理步骤】
+1. 停机并执行能量隔离（断电挂牌上锁），待系统泄压至 0 后方可作业
+2. 检查油位与油温：油位低于下限时补加同牌号液压油；油温持续高于 65℃ 需检查冷却器
+3. 检查吸油滤网与回油滤芯压差，压差超过 0.35 MPa 或滤芯报警时更换
+4. 在压力表校验合格的前提下缓慢调整溢流阀，观察压力是否随调随变
+5. 测量泵出口流量与压力：额定压力下流量低于铭牌 85% 判定泵内泄，需维修或更换
+6. 检视各接头与油缸活塞杆处有无渗漏，紧固或更换密封件
+
+【参考案例】EFA-001《液压站》，风险等级：中
+提示：本知识库为教学演示用模拟数据，不可作为真实设备检修依据。
+------------------------------------------------------------
+[工具调用] 2 次
+  OK  00:34:45 search_fault_cases({'query': '液压站压力上不去，油缸动作很慢'}) -> 命中 1 条，Top1=EFA-001 score=0.701 [7ms]
+  OK  00:34:45 get_case_detail({'case_id': 'EFA-001'}) -> 读取 EFA-001 液压站 [2ms]
+The program exited via sys.exit(). Exit status: 0
+The program finished and will be restarted
+> d:\ai_agent_project\sl\equipment-fault-agent\app.py(1)<module>()
+-> """程序入口。
+(Pdb) 

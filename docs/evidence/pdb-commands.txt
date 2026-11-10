@@ -1,0 +1,17 @@
+b src/efa/agent.py:178
+b src/efa/tools.py:240
+c
+p question
+p self.route(question)
+c
+p name
+p arguments
+n
+p result["hit_count"]
+p result["hits"][0]["case_id"]
+c
+p name
+p arguments
+n
+p result["case"]["equipment"]
+c
