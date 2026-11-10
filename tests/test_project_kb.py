@@ -91,6 +91,64 @@ class TestProjectKBSearch(unittest.TestCase):
         self.assertIn("不存在", kb.load_error)
 
 
+class TestContentCompleteness(unittest.TestCase):
+    """v2.0 新增字段的完整性：背景、步骤、排障、最佳实践、交叉引用。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.kb = ProjectKB(KB_PATH)
+
+    def test_every_entry_has_v2_fields(self):
+        for entry in self.kb.entries:
+            self.assertTrue(entry.aliases, f"{entry.id} 缺别名")
+            self.assertGreaterEqual(len(entry.background), 12, f"{entry.id} 背景过短")
+            self.assertGreaterEqual(len(entry.steps), 2, f"{entry.id} 缺实操步骤")
+            self.assertGreaterEqual(len(entry.troubleshooting), 1, f"{entry.id} 缺排障项")
+            self.assertGreaterEqual(len(entry.best_practices), 2, f"{entry.id} 缺最佳实践")
+            self.assertGreaterEqual(len(entry.related), 2, f"{entry.id} 缺交叉引用")
+
+    def test_troubleshooting_items_are_actionable(self):
+        for entry in self.kb.entries:
+            for item in entry.troubleshooting:
+                for key in ("symptom", "check", "fix"):
+                    self.assertTrue(str(item.get(key, "")).strip(), f"{entry.id} 排障项缺 {key}")
+
+    def test_related_is_symmetric(self):
+        for entry in self.kb.entries:
+            for rid in entry.related:
+                target = self.kb.get(rid)
+                self.assertIsNotNone(target, f"{entry.id} 的 related 指向不存在的 {rid}")
+                self.assertIn(entry.id, target.related, f"{entry.id} 与 {rid} 未双向引用")
+                self.assertNotEqual(entry.id, rid, f"{entry.id} 引用了自己")
+
+    def test_stats_coverage_is_full(self):
+        stats = self.kb.stats()
+        self.assertEqual(stats["entries"], len(self.kb))
+        for name, ratio in stats["coverage"].items():
+            self.assertEqual(ratio, 1.0, f"{name} 覆盖率不足")
+
+    def test_guide_category_present(self):
+        stats = {item["id"]: item for item in self.kb.category_stats()}
+        self.assertIn("guide", stats)
+        self.assertGreaterEqual(stats["guide"]["entries"], 5)
+
+    def test_related_entries_resolves(self):
+        entry = self.kb.get("KB-ARCH-001")
+        related = self.kb.related_entries(entry)
+        self.assertTrue(related)
+        self.assertTrue(all(item.id.startswith("KB-") for item in related))
+
+    def test_alias_and_symptom_search(self):
+        """别名与排障症状都应能命中，验证两步扩召回生效。"""
+        alias_hits = self.kb.search("怎么加功能", top_k=3)
+        self.assertTrue(alias_hits)
+        self.assertIn("KB-ARCH-003", [h.entry.id for h in alias_hits])
+
+        symptom_hits = self.kb.search("打不开程序怎么办", top_k=3)
+        self.assertTrue(symptom_hits)
+        self.assertEqual(symptom_hits[0].entry.id, "KB-GUIDE-003")
+
+
 class TestConsistencyWithCode(unittest.TestCase):
     def test_no_drift_in_repository(self):
         issues, summary = verify(ROOT)
@@ -141,6 +199,31 @@ class TestConsistencyWithCode(unittest.TestCase):
 
             issues, _ = verify(tmp)
             self.assertIn("BAD_SYMBOL", {i.code for i in issues})
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
+    def test_checker_detects_dangling_related(self):
+        tmp = Path(tempfile.mkdtemp(prefix="efa-kbcheck-"))
+        try:
+            shutil.copytree(ROOT / "src", tmp / "src")
+            shutil.copy(ROOT / "app.py", tmp / "app.py")
+            (tmp / "data").mkdir()
+            shutil.copy(KB_PATH, tmp / "data" / "project_kb.json")
+            shutil.copy(DATA_DIR / "fault_cases.json", tmp / "data" / "fault_cases.json")
+
+            raw = json.loads((tmp / "data" / "project_kb.json").read_text(encoding="utf-8"))
+            for entry in raw["entries"]:
+                if entry["id"] == "KB-ARCH-001":
+                    entry["related"] = ["KB-NOT-EXIST"]
+                    entry["version"] = "1.0"
+            (tmp / "data" / "project_kb.json").write_text(
+                json.dumps(raw, ensure_ascii=False), encoding="utf-8"
+            )
+
+            codes = {i.code for i in verify(tmp)[0]}
+            self.assertIn("DANGLING_RELATED", codes)
+            self.assertIn("BAD_VERSION", codes)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 

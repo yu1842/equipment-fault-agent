@@ -107,6 +107,8 @@ class TestProjectTools(unittest.TestCase):
         self.assertTrue(record.ok)
         self.assertEqual(result["entry"]["id"], "KB-API-001")
         self.assertIn("inputs", result["entry"])
+        self.assertTrue(result["entry"]["steps"])
+        self.assertTrue(result["related"], "条目应返回关联条目，便于导航")
 
     def test_get_unknown_entry(self):
         result, record = self.registry.execute("get_kb_entry", {"entry_id": "KB-999"})
@@ -116,7 +118,7 @@ class TestProjectTools(unittest.TestCase):
     def test_list_kb_categories(self):
         result, record = self.registry.execute("list_kb_categories", {})
         self.assertTrue(record.ok)
-        self.assertEqual(result["count"], 10)
+        self.assertEqual(result["count"], 11)
         self.assertTrue(all(item["entries"] > 0 for item in result["categories"]))
 
     def test_registry_without_project_kb_hides_project_tools(self):
