@@ -1,0 +1,60 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "调试：正常问题（离线，断点看工具调用）",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "app",
+      "args": ["--cli", "液压站压力上不去，油缸动作很慢"],
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "EFA_FORCE_OFFLINE": "1",
+        "PYTHONPATH": "${workspaceFolder}/src"
+      },
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "调试：未知故障（验证无依据不编造）",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "app",
+      "args": ["--cli", "数控冲床送料机构卡料，送不到位"],
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "EFA_FORCE_OFFLINE": "1",
+        "PYTHONPATH": "${workspaceFolder}/src"
+      },
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "调试：异常输入（空字符串）",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "app",
+      "args": ["--cli", ""],
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "EFA_FORCE_OFFLINE": "1",
+        "PYTHONPATH": "${workspaceFolder}/src"
+      },
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "调试：GUI 客户端",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "app",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/src"
+      },
+      "console": "integratedTerminal",
+      "justMyCode": false
+    }
+  ]
+}

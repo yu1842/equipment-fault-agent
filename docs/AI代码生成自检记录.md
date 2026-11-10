@@ -85,7 +85,7 @@ AssertionError: '本地知识库暂无该故障的案例依据' not found in '�
 
 | 验证项 | 结果 |
 | --- | --- |
-| 全量测试 | `Ran 86 tests in 4.368s` → `OK`（`docs/evidence/log-04-tests.txt`） |
+| 全量测试 | `Ran 89 tests in 4.547s` → `OK`（`docs/evidence/log-04-tests.txt`） |
 | 负例仍为空命中 | 检索"数控冲床送料机构卡料"命中 0 条 |
 | 新增案例仍可用 | 检索"点检周期怎么定"命中 EFA-021，界面正常作答 |
 | 界面实际状态 | 知识库页显示 24 条案例（含 EFA-013 注塑机），风险列正常 |
@@ -149,7 +149,7 @@ self.assertGreater(self.app.chat.winfo_width(), 100)
 | 窗口尺寸 | 1180 × 760 | 1180 × 760 |
 | 对话区 | 宽 > 100 | 589 × 492 |
 | 输入框 | 高度 > 40 | 73 |
-| 全量测试 | 全绿 | 86 项通过 |
+| 全量测试 | 全绿 | 89 项通过 |
 
 [[FIG2]]
 
@@ -217,7 +217,7 @@ TEXT = "检索结果为空时必须写「未收录」，不要臆造实现细节
 | 客观信号 | 2 个 FAIL | `1 not greater than 100` | `SyntaxError` |
 | 根因层级 | 测试假设 | 测试前置条件 | 数据字面量 |
 | 修复位置 | `tests/` 负例 | `tests/` setUp | 数据模块文案 |
-| 验证方式 | 86 项全绿 + 检索复现 | 尺寸实测 + 86 项全绿 | 编译通过 + 迁移成功 |
+| 验证方式 | 89 项全绿 + 检索复现 | 尺寸实测 + 89 项全绿 | 编译通过 + 迁移成功 |
 | 沉淀 | 负例必须选库外设备 | 几何断言先 `update()` | 中文引述用「」 |
 
 三例有一个共同点：**问题都不是"代码写错"，而是"假设过期"**。案例一是"知识库还没覆盖它"的假设过期，案例二是"创建完就有尺寸"的假设过期，案例三是"中文引号不影响语法"的假设过期。所以修复的重点不是改逻辑，而是把过期假设换成可验证的约束。
@@ -231,7 +231,7 @@ TEXT = "检索结果为空时必须写「未收录」，不要臆造实现细节
 | 层级 | 机制 | 作用 |
 | --- | --- | --- |
 | 编译 | `python -m compileall src app.py tools` | 语法与引号类问题在测试前拦截 |
-| 测试 | `python run_tests.py`（86 项） | 行为回归，含负例与降级路径 |
+| 测试 | `python run_tests.py`（89 项） | 行为回归，含负例与降级路径 |
 | 数据校验 | `tools/verify_cases.py`、`tools/verify_kb.py` | 案例与知识库的字段、可检索性、索引同步 |
 | 证据采集 | `tools/capture_evidence.py` | 把"问题现象"变成可复现日志，随文档交付 |
 
@@ -244,7 +244,7 @@ TEXT = "检索结果为空时必须写「未收录」，不要臆造实现细节
 | 1 | `docs/evidence/log-01-negative-case.txt` | 旧负例命中 EFA-013（0.632）、新负例 0 条 | `capture_evidence.py --case negative` |
 | 2 | `docs/evidence/log-02-tkinter-layout.txt` | `chat=1` 与 `589×492` 的对照 | `capture_evidence.py --case layout` |
 | 3 | `docs/evidence/log-03-quote-truncation.txt` | ASCII 引号导致 `SyntaxError`、改「」后通过 | `capture_evidence.py --case quotes` |
-| 4 | `docs/evidence/log-04-tests.txt` | `Ran 86 tests … OK` | `python run_tests.py` |
+| 4 | `docs/evidence/log-04-tests.txt` | `Ran 89 tests … OK` | `python run_tests.py` |
 | 5 | `docs/evidence/git-commits.txt` | 相关提交、修复 diff | `git log` / `git show` |
 | 6 | `docs/evidence/shot-01-app.png` | 客户端真实运行：命中 EFA-001、工具调用 2 次、匹配度 0.701 | 运行程序后截取窗口 |
 | 7 | `docs/evidence/shot-02-kb.png` | 知识库页：24 条案例，含 EFA-013 注塑机 | 同上 |
