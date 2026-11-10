@@ -1264,7 +1264,7 @@
         "KB-CONV-002",
         "KB-DATA-003"
       ],
-      "scope": "src/efa/session.py",
+      "scope": "src/efa/session.py（运行时产物写入 logs/）",
       "version": ">=1.0.0",
       "tags": [
         "日志",
@@ -1272,8 +1272,7 @@
         "取证"
       ],
       "refs": [
-        "src/efa/session.py",
-        "logs/"
+        "src/efa/session.py"
       ],
       "details": "文件名 session-YYYYmmdd-HHMMSS.jsonl，每行 {ts, session, kind, ...}，kind 取 question / answer / tool_call / event。tool_calls() 会对每条 ToolCallRecord 调 to_dict() 展开。目录默认 config.LOG_DIR，已被 .gitignore 忽略。"
     },
