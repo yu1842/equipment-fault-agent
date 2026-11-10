@@ -1,0 +1,37 @@
+[project]
+name = "equipment-fault-agent"
+version = "1.0.0"
+description = "制造企业设备故障咨询 Agent：本地知识库检索 + 可追溯工具调用 + Windows 桌面客户端"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "EFA Project" }]
+keywords = ["agent", "tool-calling", "manufacturing", "fault-diagnosis", "tkinter"]
+dependencies = []
+
+[project.optional-dependencies]
+# 打包为独立 exe 时才需要（可选，不影响源码运行）
+build = ["pyinstaller>=6.0"]
+
+[project.scripts]
+efa = "app:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/efa"]
+
+# 本项目以源码方式直接运行（app.py 自行注入 src 路径），
+# 因此 uv 不必安装项目本体，可离线创建虚拟环境。
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B"]
+ignore = ["E501"]
