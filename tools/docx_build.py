@@ -100,7 +100,8 @@ def split_markdown(text: str, limit: int = 600) -> list[str]:
     buf: list[str] = []
     size = 0
     for block in blocks:
-        text_block = "".join(block)
+        # 块之间必须保留空行：否则标题会粘到上一段末尾，InsertMarkdown 也会整段失败
+        text_block = "".join(block).strip("\n") + "\n\n"
         if buf and size + len(text_block) > limit:
             chunks.append("".join(buf).rstrip() + "\n\n")
             buf, size = [], 0
@@ -156,6 +157,29 @@ def enable_field_update(path: Path) -> None:
 # ---------------------------------------------------------------- 构建流程
 
 
+def insert_text(file_id: str, text: str, tmp_dir: Path, tag: str = "chunk") -> None:
+    """插入一段 markdown；失败时按空行对半拆开重试。
+
+    编辑器对"段落 + 代码块""表格 + 代码块"这类组合偶发整段失败，
+    拆到单一结构后即可插入，因此这里做递归拆分而不是整份重来。
+    """
+    tail = call("doc_get_last_operable_pos", file_id=file_id)
+    pos = int(tail.get("position", 0))
+    path = tmp_dir / f"{tag}.md"
+    path.write_text(text, encoding="utf-8")
+    try:
+        call("doc_insert_markdown", file_id=file_id, idx=pos,
+             markdown=f"file://{path.as_posix()}")
+        return
+    except RuntimeError as exc:
+        parts = [p for p in text.split("\n\n") if p.strip()]
+        if len(parts) < 2:
+            raise RuntimeError(f"片段无法插入（{len(text)} 字）：{exc}") from exc
+        mid = len(parts) // 2
+        insert_text(file_id, "\n\n".join(parts[:mid]) + "\n\n", tmp_dir, f"{tag}a")
+        insert_text(file_id, "\n\n".join(parts[mid:]) + "\n\n", tmp_dir, f"{tag}b")
+
+
 def build_document(cover_path: Path, source: str, limit: int) -> tuple[str, int]:
     """在新建文档里插入封面与正文，返回 (file_id, 正文起始位置)。失败直接抛出。"""
     chunks = split_markdown(source, limit)
@@ -171,17 +195,10 @@ def build_document(cover_path: Path, source: str, limit: int) -> tuple[str, int]
 
     tmp_dir = Path(tempfile.mkdtemp(prefix="efa-doc-"))
     for index, chunk in enumerate(chunks, 1):
-        chunk_file = tmp_dir / f"chunk-{index:03d}.md"
-        chunk_file.write_text(chunk, encoding="utf-8")
-        tail = call("doc_get_last_operable_pos", file_id=file_id)
-        pos = int(tail.get("position", 0))
-        try:
-            result = call("doc_insert_markdown", file_id=file_id, idx=pos,
-                          markdown=f"file://{chunk_file.as_posix()}")
-        except RuntimeError as exc:
-            head = chunk.strip().splitlines()[0][:40] if chunk.strip() else ""
-            raise RuntimeError(f"第 {index} 块失败（{len(chunk)} 字，起始：{head}）：{exc}") from exc
-        print(f"  [{index:02d}/{len(chunks)}] {len(chunk):>5} 字 -> {pos} -> {result.get('position')}")
+        before = call("doc_get_last_operable_pos", file_id=file_id).get("position")
+        insert_text(file_id, chunk, tmp_dir, f"chunk-{index:03d}")
+        after = call("doc_get_last_operable_pos", file_id=file_id).get("position")
+        print(f"  [{index:02d}/{len(chunks)}] {len(chunk):>5} 字 -> {before} -> {after}")
 
     return file_id, content_start
 
