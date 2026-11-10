@@ -15,6 +15,7 @@ import math
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from . import kb_index
 from .knowledge import bigrams, dice, normalize
 
 CATEGORY_ORDER = (
@@ -134,12 +135,15 @@ class KBHit:
 class ProjectKB:
     """项目知识库。加载失败时保持可用（空库 + load_error），不抛异常。"""
 
-    def __init__(self, path: str | Path):
+    def __init__(self, path: str | Path, index_path: str | Path | None = None):
         self.path = Path(path)
+        self.index_path = Path(index_path) if index_path else self.path.parent / "kb_index.json"
         self.entries: list[KBEntry] = []
         self.categories: list[dict] = []
         self.version: str = ""
         self.load_error: str = ""
+        self.index_status: str = "missing"  # fresh | stale | missing
+        self._postings: dict[str, list[str]] | None = None
         self.load()
 
     # ---------- 加载 ----------
@@ -168,6 +172,39 @@ class ProjectKB:
                 self.entries.append(KBEntry.from_dict(item))
         if not self.entries:
             self.load_error = "项目知识库为空，请检查 data/project_kb.json"
+            return
+        self._load_index()
+
+    def _load_index(self) -> None:
+        """索引与数据同版本才启用，否则标记 stale 并退回线性扫描。"""
+        data = kb_index.load_index(self.index_path)
+        if data is None:
+            self.index_status = "missing"
+            self._postings = None
+            return
+        try:
+            current = kb_index.file_hash(self.path)
+        except OSError:
+            self.index_status = "stale"
+            self._postings = None
+            return
+        if data.get("kb_hash") != current:
+            self.index_status = "stale"
+            self._postings = None
+            return
+        self.index_status = "fresh"
+        self._postings = {str(k): list(v) for k, v in (data.get("postings") or {}).items()}
+
+    def _candidates(self, query: str) -> list[KBEntry]:
+        """有可用索引时先用倒排表缩小范围；无命中则退回全量。"""
+        if not self._postings:
+            return self.entries
+        hit_ids: set[str] = set()
+        for term in kb_index.query_terms(query):
+            hit_ids.update(self._postings.get(term, ()))
+        if not hit_ids:
+            return self.entries
+        return [entry for entry in self.entries if entry.id in hit_ids]
 
     # ---------- 查询 ----------
 
@@ -312,4 +349,6 @@ class ProjectKB:
             "coverage": {k: round(v / total, 3) for k, v in coverage.items()},
             "troubleshooting_items": sum(len(e.troubleshooting) for e in self.entries),
             "steps_items": sum(len(e.steps) for e in self.entries),
+            "index": self.index_status,
+            "index_terms": len(self._postings or {}),
         }

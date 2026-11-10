@@ -219,6 +219,38 @@ def verify(project_root: str | Path) -> tuple[list[Issue], dict]:
                 )
             )
 
+    # 4.5 倒排索引同步
+    try:
+        from efa import kb_index
+
+        index_path = root / "data" / "kb_index.json"
+        data = kb_index.load_index(index_path)
+        if data is None:
+            issues.append(
+                Issue("W", "INDEX_MISSING", "缺少 data/kb_index.json，请执行 python tools/rebuild_index.py")
+            )
+        elif data.get("kb_hash") != kb_index.file_hash(kb_path):
+            issues.append(
+                Issue("W", "INDEX_STALE", "索引与数据不同版本，请执行 python tools/rebuild_index.py")
+            )
+    except Exception as exc:  # noqa: BLE001
+        issues.append(Issue("W", "INDEX_CHECK_FAIL", f"索引检查未执行：{exc}"))
+
+    # 4.6 可检索性：用条目自己的标题检索，必须排第一
+    try:
+        from efa.project_kb import ProjectKB
+
+        probe = ProjectKB(kb_path)
+        for entry in probe.entries:
+            hits = probe.search(entry.title, top_k=1)
+            if not hits or hits[0].entry.id != entry.id:
+                got = hits[0].entry.id if hits else "无命中"
+                issues.append(
+                    Issue("E", "NOT_SEARCHABLE", f"{entry.id} 用自己的标题检索不到自己（Top1={got}），请补 aliases 或调整标题")
+                )
+    except Exception as exc:  # noqa: BLE001
+        issues.append(Issue("W", "SEARCH_CHECK_FAIL", f"可检索性检查未执行：{exc}"))
+
     # 5. 工具契约
     try:
         from efa.knowledge import KnowledgeBase
@@ -322,7 +354,7 @@ def verify(project_root: str | Path) -> tuple[list[Issue], dict]:
             ("cautions", 1, 6),
             ("best_practices", 2, 5),
             ("tags", 3, 8),
-            ("related", 2, 10),
+            ("related", 2, 12),
         ):
             count = len(entry.get(name) or [])
             if count < low:
