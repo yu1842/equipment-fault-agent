@@ -13,10 +13,12 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 
-from .config import Settings
+from .config import DATA_DIR, Settings
 from .knowledge import KnowledgeBase
 from .llm import LLMClient, LLMError
+from .project_kb import ProjectKB
 from .tools import ToolCallRecord, ToolRegistry
 
 SYSTEM_PROMPT = """你是"制造企业设备故障咨询助手"，服务于工厂设备运维场景。
@@ -33,7 +35,26 @@ SYSTEM_PROMPT = """你是"制造企业设备故障咨询助手"，服务于工�
    并说明无法给出有依据的判断，禁止编造案例编号、故障现象或处理步骤。
 5. 涉及高压、高温、旋转部件、带电作业时，先提示安全隔离措施。
 6. 你只提供咨询建议：不连接真实设备，不下发任何设备控制指令，不承诺检修结果。
-7. 使用简体中文，分点简洁作答，总长度控制在 400 字以内。"""
+7. 使用简体中文，分点简洁作答，总长度控制在 400 字以内。
+8. 当问题涉及本项目自身的代码结构、模块职责、接口签名、数据结构、配置项、依赖约束
+   或开发约定时，改用 search_project_kb 检索工程知识库，必要时用 get_kb_entry 读取
+   完整条目；不确定分类可先调用 list_kb_categories。这类问题不要调用 search_fault_cases。
+9. 回答工程问题时给出结论 + 关键参数/字段 + 适用边界，并引用条目编号（如 KB-API-001）；
+   若知识库未收录，明确说明未收录，不要臆造接口或配置项。"""
+
+# 离线模式的问题路由线索：工程类问题走项目知识库，其余走故障案例库
+PROJECT_HINTS = (
+    "模块", "函数", "方法", "接口", "参数", "签名", "配置", "环境变量", "字段",
+    "数据结构", "架构", "分层", "代码", "源码", "实现", "依赖", "标准库", "第三方",
+    "日志", "线程", "队列", "异常处理", "错误码", "扩展", "新增", "重构", "目录",
+    "规范", "约定", "入口", "命令行", "项目", "部署", "服务化", "多用户", "数据库",
+    "版本", "单元测试", "文档", "api", "sdk",
+)
+FAULT_HINTS = (
+    "故障", "维修", "检修", "报警", "停机", "异响", "振动", "漏油", "渗漏", "过热",
+    "温度", "压力", "跑偏", "跳闸", "过载", "磨损", "精度", "挂渣", "堵塞", "设备",
+    "产线", "车间",
+)
 
 
 @dataclass
@@ -58,10 +79,16 @@ class Agent:
         self,
         settings: Settings | None = None,
         kb: KnowledgeBase | None = None,
+        project_kb: ProjectKB | None = None,
     ):
         self.settings = settings or Settings.load()
         self.kb = kb or KnowledgeBase(self.settings.kb_path)
-        self.tools = ToolRegistry(self.kb, self.settings.top_k, self.settings.min_score)
+        # 项目知识库与案例库同目录，缺省按 kb_path 的父目录推断，避免再引入配置项
+        default_project_kb = Path(self.settings.kb_path).parent / "project_kb.json"
+        self.project_kb = project_kb or ProjectKB(default_project_kb)
+        self.tools = ToolRegistry(
+            self.kb, self.settings.top_k, self.settings.min_score, project_kb=self.project_kb
+        )
         self.llm = LLMClient(self.settings)
         self.history: list[dict] = []
         self._last_records: list[ToolCallRecord] = []
@@ -74,6 +101,29 @@ class Agent:
     @property
     def mode_label(self) -> str:
         return self.settings.mode_label
+
+    @staticmethod
+    def route(question: str) -> str:
+        """离线模式的问题路由：project / fault。
+
+        工程问题的关键词更集中，且常直接出现类名或方法名；故障描述多以现象词为主。
+        打分相近时偏向故障库，因为本产品的主场景仍是设备咨询。
+        """
+        text = (question or "").lower()
+        project_score = 0
+        fault_score = 0
+        for hint in PROJECT_HINTS:
+            if hint in text:
+                project_score += 2
+        for hint in FAULT_HINTS:
+            if hint in text:
+                fault_score += 2
+        # 查询里直接出现项目符号（类名/方法名）时，强烈指向工程问题
+        for symbol in ("agent.ask", "toolregistry", "knowledgebase", "projectkb", "settings",
+                       "llmclient", "sessionlog", "faultagentapp", "search_fault_cases"):
+            if symbol in text:
+                project_score += 4
+        return "project" if project_score > 0 and project_score > fault_score else "fault"
 
     def ask(self, question: str) -> Answer:
         started = time.perf_counter()
@@ -190,6 +240,10 @@ class Agent:
         records: list[ToolCallRecord],
         prefix_reason: str = "",
     ) -> tuple[str, list[ToolCallRecord]]:
+        # 先做问题路由：工程类问题走项目知识库，避免用故障案例答“代码怎么改”
+        if self.route(question) == "project":
+            return self._ask_offline_project(question, records, prefix_reason)
+
         result, record = self.tools.execute("search_fault_cases", {"query": question})
         records.append(record)
 
@@ -237,6 +291,80 @@ class Agent:
             lines.append(f"提示：{self.kb.disclaimer}")
         return "\n".join(lines), records
 
+    def _ask_offline_project(
+        self,
+        question: str,
+        records: list[ToolCallRecord],
+        prefix_reason: str = "",
+    ) -> tuple[str, list[ToolCallRecord]]:
+        """工程问题的离线回答：检索项目知识库，输出条目要点而非模板化寒暄。"""
+        lines: list[str] = []
+        if prefix_reason:
+            lines.append(f"（在线模型不可用：{prefix_reason}。已自动切换为本地规则模式作答。）")
+        lines.append("【离线规则模式 · 项目知识库】未调用大模型，以下内容来自本地工程知识库。")
+        lines.append("")
+
+        if self.project_kb.load_error:
+            lines.append(f"项目知识库未能加载：{self.project_kb.load_error}")
+            return "\n".join(lines), records
+
+        result, record = self.tools.execute("search_project_kb", {"query": question})
+        records.append(record)
+
+        if not result.get("ok") or not result.get("hit_count"):
+            lines.append("【判断】项目知识库未收录与该问题匹配的条目，无法给出有依据的说明。")
+            lines.append("")
+            stats = "、".join(f"{c['name']}({c['entries']})" for c in self.project_kb.category_stats())
+            lines.append(f"当前分类与条目数：{stats}。")
+            lines.append("建议换个说法，或直接指定模块名/接口名（如 ToolRegistry、Settings.load）。")
+            return "\n".join(lines), records
+
+        top = result["hits"][0]
+        detail, detail_record = self.tools.execute("get_kb_entry", {"entry_id": top["entry_id"]})
+        records.append(detail_record)
+        entry = detail.get("entry", {})
+
+        lines.append(f"【命中】{entry.get('id')} {entry.get('title')}"
+                     f"（分类：{entry.get('category')}，匹配度 {top.get('score')}）")
+        if len(result["hits"]) > 1:
+            others = "、".join(f"{h['entry_id']} {h['title']}" for h in result["hits"][1:])
+            lines.append(f"其他候选：{others}")
+        lines.append("")
+        if entry.get("summary"):
+            lines.append(f"【结论】{entry['summary']}")
+            lines.append("")
+        if entry.get("signature"):
+            lines.append(f"【签名/字段】{entry['signature']}")
+            lines.append("")
+        if entry.get("inputs"):
+            lines.append("【参数规范】")
+            for item in entry["inputs"]:
+                required = "必填" if item.get("required") else "可选"
+                lines.append(
+                    f"- {item.get('name')}（{item.get('type')}，{required}，默认 {item.get('default') or '无'}）："
+                    f"{item.get('desc', '')}"
+                )
+            lines.append("")
+        if entry.get("outputs"):
+            lines.append(f"【输出】{entry['outputs']}")
+            lines.append("")
+        if entry.get("when_to_use"):
+            lines.append("【什么时候用】")
+            lines.extend(f"- {item}" for item in entry["when_to_use"][:4])
+            lines.append("")
+        if entry.get("cautions"):
+            lines.append("【注意事项】")
+            lines.extend(f"- {item}" for item in entry["cautions"][:4])
+            lines.append("")
+        if entry.get("details"):
+            lines.append(f"【说明】{entry['details']}")
+            lines.append("")
+        lines.append(
+            f"【适用范围】{entry.get('scope', '-')}｜版本 {entry.get('version', '-')}"
+            f"｜来源 {', '.join(entry.get('refs', [])[:3])}"
+        )
+        return "\n".join(lines), records
+
     # ---------- 辅助 ----------
 
     def _push_history(self, question: str, answer: str) -> None:
@@ -249,12 +377,16 @@ class Agent:
     def _collect_citations(records: list[ToolCallRecord]) -> list[str]:
         ids: list[str] = []
         for record in records:
-            if record.name == "search_fault_cases":
+            if record.name in ("search_fault_cases", "search_project_kb"):
                 for token in record.summary.split():
-                    if token.startswith("EFA-") and token not in ids:
+                    if token.startswith(("EFA-", "KB-")) and token not in ids:
                         ids.append(token)
             if record.name == "get_case_detail":
                 arg = record.arguments.get("case_id")
+                if arg and arg not in ids:
+                    ids.append(str(arg))
+            if record.name == "get_kb_entry":
+                arg = record.arguments.get("entry_id")
                 if arg and arg not in ids:
                     ids.append(str(arg))
         return ids

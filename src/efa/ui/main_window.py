@@ -349,7 +349,37 @@ class FaultAgentApp(tk.Tk):
         self.kb_tree.bind("<Double-1>", self._show_case_detail)
         self._load_kb_tree()
 
-        # 3. 说明
+        # 3. 项目知识库
+        tab_pkb = tk.Frame(notebook, bg=CARD)
+        notebook.add(tab_pkb, text="项目知识库")
+        pkb = getattr(self.agent, "project_kb", None)
+        pkb_count = len(pkb) if pkb is not None else 0
+        self.pkb_hint = tk.Label(
+            tab_pkb,
+            text=("共 %d 条工程知识（模块/接口/数据/配置/异常/依赖），双击查看完整条目。"
+                  % pkb_count)
+            if pkb_count
+            else "项目知识库未加载，检查 data/project_kb.json。",
+            bg=CARD,
+            fg=MUTED,
+            font=(FONT, 8),
+            anchor="w",
+        )
+        self.pkb_hint.pack(fill="x", padx=8, pady=(6, 4))
+        pkb_cols = ("id", "category", "title")
+        self.pkb_tree = ttk.Treeview(tab_pkb, columns=pkb_cols, show="headings", height=14)
+        for col, text, width, anchor in (
+            ("id", "编号", 86, "center"),
+            ("category", "分类", 74, "center"),
+            ("title", "标题", 220, "w"),
+        ):
+            self.pkb_tree.heading(col, text=text)
+            self.pkb_tree.column(col, width=width, anchor=anchor, stretch=(col == "title"))
+        self.pkb_tree.pack(fill="both", expand=True, padx=8, pady=(0, 6))
+        self.pkb_tree.bind("<Double-1>", self._show_entry_detail)
+        self._load_pkb_tree()
+
+        # 4. 说明
         tab_help = tk.Frame(notebook, bg=CARD)
         notebook.add(tab_help, text="使用说明")
         help_text = tk.Text(
@@ -373,7 +403,10 @@ class FaultAgentApp(tk.Tk):
             "二、推荐演示路径\n"
             "① 输入「液压站压力上不去」→ 观察右侧工具调用记录 → 回答问题引用 EFA-001；\n"
             "② 输入知识库未覆盖的问题（如「注塑机模具冷却水路堵塞」）→ 观察是否明确说明缺乏依据；\n"
-            "③ 输入空内容或断开网络 → 观察异常提示与自动降级。\n\n"
+            "③ 输入空内容或断开网络 → 观察异常提示与自动降级；\n"
+            "④ 输入「新增一个工具要改哪些地方」「Settings 配置优先级」等工程问题\n"
+            "   → 自动转向项目知识库，回答引用 KB-xxx 条目编号；\n"
+            "⑤ 右栏「项目知识库」页签可按编号/分类浏览 52 条工程知识，双击看完整契约。\n\n"
             "三、安全边界\n"
             "本程序只查询本地模拟案例库，不连接任何真实工业设备，\n"
             "不执行设备控制动作，所有建议仅供教学演示。\n\n"
@@ -399,7 +432,7 @@ class FaultAgentApp(tk.Tk):
             anchor="w",
         ).pack(side="left", padx=14)
         self.kb_var = tk.StringVar(
-            value=f"知识库 {len(self.agent.kb)} 条"
+            value=f"案例 {len(self.agent.kb)} 条 · 工程知识 {len(getattr(self.agent, 'project_kb', []) or [])} 条"
             + (f" · {self.agent.kb.load_error}" if self.agent.kb.load_error else "")
         )
         tk.Label(
@@ -593,6 +626,70 @@ class FaultAgentApp(tk.Tk):
         text.insert("1.0", "\n".join(lines))
         text.configure(state="disabled")
 
+    def _load_pkb_tree(self) -> None:
+        pkb = getattr(self.agent, "project_kb", None)
+        if pkb is None:
+            return
+        category_names = {c["id"]: c["name"] for c in pkb.category_stats()}
+        for entry in pkb.entries:
+            self.pkb_tree.insert(
+                "",
+                "end",
+                iid=entry.id,
+                values=(entry.id, category_names.get(entry.category, entry.category), entry.title),
+            )
+
+    def _show_entry_detail(self, _event=None) -> None:
+        selected = self.pkb_tree.selection()
+        if not selected:
+            return
+        pkb = getattr(self.agent, "project_kb", None)
+        entry = pkb.get(selected[0]) if pkb is not None else None
+        if entry is None:
+            return
+        win = tk.Toplevel(self)
+        win.title(f"{entry.id} · {entry.title}")
+        win.geometry("640x600")
+        win.configure(bg=CARD)
+        text = tk.Text(win, wrap="word", bg=CARD, fg=TEXT, font=(FONT, 10), padx=16, pady=12)
+        scroll = ttk.Scrollbar(win, orient="vertical", command=text.yview)
+        text.configure(yscrollcommand=scroll.set)
+        scroll.pack(side="right", fill="y")
+        text.pack(fill="both", expand=True)
+        lines = [f"{entry.id}  {entry.title}", f"分类：{entry.category}｜{entry.version}", ""]
+        lines += ["结论", entry.summary, ""]
+        if entry.signature:
+            lines += ["签名/字段", entry.signature, ""]
+        if entry.inputs:
+            lines.append("参数规范")
+            for item in entry.inputs:
+                required = "必填" if item.get("required") else "可选"
+                lines.append(
+                    f"- {item.get('name')}（{item.get('type')}，{required}，"
+                    f"默认 {item.get('default') or '无'}）：{item.get('desc', '')}"
+                )
+            lines.append("")
+        if entry.outputs:
+            lines += ["输出", entry.outputs, ""]
+        for title, values in (
+            ("什么时候用", entry.when_to_use),
+            ("使用场景", entry.scenarios),
+            ("注意事项", entry.cautions),
+        ):
+            if values:
+                lines.append(title)
+                lines.extend(f"{i}. {v}" for i, v in enumerate(values, 1))
+                lines.append("")
+        if entry.details:
+            lines += ["说明", entry.details, ""]
+        if entry.tags:
+            lines += ["标签", "、".join(entry.tags), ""]
+        lines.append(f"适用范围：{entry.scope}")
+        if entry.refs:
+            lines.append("来源：" + "、".join(entry.refs))
+        text.insert("1.0", "\n".join(lines))
+        text.configure(state="disabled")
+
     # ================= 菜单动作 =================
 
     def clear_chat(self) -> None:
@@ -719,7 +816,14 @@ class FaultAgentApp(tk.Tk):
                 return
             self.agent = Agent(self.settings)
             self.mode_var.set(self._mode_text())
-            self.kb_var.set(f"知识库 {len(self.agent.kb)} 条")
+            self.kb_var.set(
+                f"案例 {len(self.agent.kb)} 条 · 工程知识 {len(self.agent.project_kb)} 条"
+            )
+            try:
+                self.pkb_tree.delete(*self.pkb_tree.get_children())
+                self._load_pkb_tree()
+            except (tk.TclError, AttributeError):
+                pass
             self._append(
                 "sys",
                 f"设置已保存到 {path}。当前模式：{self.agent.mode_label}，"
@@ -766,7 +870,7 @@ class FaultAgentApp(tk.Tk):
     def show_about(self) -> None:
         messagebox.showinfo(
             "关于",
-            "设备故障咨询 Agent  v1.0.0\n\n"
+            "设备故障咨询 Agent  v1.1.0\n\n"
             "技术栈：Python 3.10+ / Tkinter / urllib（零第三方依赖）\n"
             "能力：本地 JSON 知识库检索、工具调用可追溯、在线 LLM 与离线规则双模式\n\n"
             "安全声明：本程序只查询本地模拟案例库，不连接真实工业设备，\n"
