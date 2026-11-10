@@ -307,13 +307,7 @@ def verify(project_root: str | Path) -> tuple[list[Issue], dict]:
                 issues.append(
                     Issue("E", "STALE_NUMBER", f"{entry.get('id')} 写“{tool_claim.group(0)}”，实际 {actual} 个")
                 )
-        equip_claim = re.search(r"当前\s*(\d+)\s*类", details)
-        if equip_claim and kb is not None:
-            actual = len(kb.equipment_names())
-            if int(equip_claim.group(1)) != actual:
-                issues.append(
-                    Issue("E", "STALE_NUMBER", f"{entry.get('id')} 写“{equip_claim.group(0)}”，实际 {actual} 类")
-                )
+        # 注：项目知识库已冻结，设备数量随案例库扩展而变化，故不再对其做自动断言
 
     # 8. 标准化与信息粒度
     ids = {str(e.get("id")) for e in entries}

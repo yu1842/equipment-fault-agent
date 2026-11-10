@@ -1,6 +1,6 @@
 [project]
 name = "equipment-fault-agent"
-version = "2.0.0"
+version = "2.2.0"
 description = "制造企业设备故障咨询 Agent：本地知识库检索 + 可追溯工具调用 + Windows 桌面客户端"
 readme = "README.md"
 requires-python = ">=3.10"

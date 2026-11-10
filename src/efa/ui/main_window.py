@@ -35,6 +35,9 @@ SYS_TAG = "#B26A00"
 OK = "#12805C"
 WARN = "#C2410C"
 
+# 项目知识库已冻结并对外隐藏：置 True 可恢复“项目知识库”页签
+SHOW_PROJECT_KB = False
+
 FONT = "Microsoft YaHei UI"
 PLACEHOLDER = "描述设备故障现象，例如：液压站压力上不去，油缸动作很慢"
 
@@ -349,35 +352,9 @@ class FaultAgentApp(tk.Tk):
         self.kb_tree.bind("<Double-1>", self._show_case_detail)
         self._load_kb_tree()
 
-        # 3. 项目知识库
-        tab_pkb = tk.Frame(notebook, bg=CARD)
-        notebook.add(tab_pkb, text="项目知识库")
-        pkb = getattr(self.agent, "project_kb", None)
-        pkb_count = len(pkb) if pkb is not None else 0
-        self.pkb_hint = tk.Label(
-            tab_pkb,
-            text=("共 %d 条工程知识（模块/接口/数据/配置/异常/依赖），双击查看完整条目。"
-                  % pkb_count)
-            if pkb_count
-            else "项目知识库未加载，检查 data/project_kb.json。",
-            bg=CARD,
-            fg=MUTED,
-            font=(FONT, 8),
-            anchor="w",
-        )
-        self.pkb_hint.pack(fill="x", padx=8, pady=(6, 4))
-        pkb_cols = ("id", "category", "title")
-        self.pkb_tree = ttk.Treeview(tab_pkb, columns=pkb_cols, show="headings", height=14)
-        for col, text, width, anchor in (
-            ("id", "编号", 86, "center"),
-            ("category", "分类", 74, "center"),
-            ("title", "标题", 220, "w"),
-        ):
-            self.pkb_tree.heading(col, text=text)
-            self.pkb_tree.column(col, width=width, anchor=anchor, stretch=(col == "title"))
-        self.pkb_tree.pack(fill="both", expand=True, padx=8, pady=(0, 6))
-        self.pkb_tree.bind("<Double-1>", self._show_entry_detail)
-        self._load_pkb_tree()
+        # 3. 项目知识库（冻结维护，默认隐藏）
+        if SHOW_PROJECT_KB:
+            self._build_project_kb_tab(notebook)
 
         # 4. 说明
         tab_help = tk.Frame(notebook, bg=CARD)
@@ -404,9 +381,9 @@ class FaultAgentApp(tk.Tk):
             "① 输入「液压站压力上不去」→ 观察右侧工具调用记录 → 回答问题引用 EFA-001；\n"
             "② 输入知识库未覆盖的问题（如「注塑机模具冷却水路堵塞」）→ 观察是否明确说明缺乏依据；\n"
             "③ 输入空内容或断开网络 → 观察异常提示与自动降级；\n"
-            "④ 输入「新增一个工具要改哪些地方」「Settings 配置优先级」等工程问题\n"
-            "   → 自动转向项目知识库，回答引用 KB-xxx 条目编号；\n"
-            "⑤ 右栏「项目知识库」页签可按编号/分类浏览 65 条工程知识，双击看背景、步骤、排障与关联条目。\n\n"
+            "④ 输入「注塑机模温上不去」「AGV 原地打转」等新设备问题\n"
+            "   → 命中案例库对应条目，回答引用 EFA-xxx 编号；\n"
+            "⑤ 右栏「知识库」页签可按编号查看 24 条案例的完整原因与处理步骤。\n\n"
             "三、安全边界\n"
             "本程序只查询本地模拟案例库，不连接任何真实工业设备，\n"
             "不执行设备控制动作，所有建议仅供教学演示。\n\n"
@@ -416,8 +393,36 @@ class FaultAgentApp(tk.Tk):
         )
         help_text.configure(state="disabled")
 
-    # ================= 状态栏 =================
+    def _build_project_kb_tab(self, notebook) -> None:
+        """项目知识库页签：已冻结并默认隐藏，SHOW_PROJECT_KB=True 时恢复。"""
+        tab_pkb = tk.Frame(notebook, bg=CARD)
+        notebook.add(tab_pkb, text="项目知识库")
+        pkb = getattr(self.agent, "project_kb", None)
+        pkb_count = len(pkb) if pkb is not None else 0
+        tk.Label(
+            tab_pkb,
+            text=(f"共 {pkb_count} 条工程知识，双击查看完整条目。")
+            if pkb_count
+            else "项目知识库未加载，检查 data/project_kb.json。",
+            bg=CARD,
+            fg=MUTED,
+            font=(FONT, 8),
+            anchor="w",
+        ).pack(fill="x", padx=8, pady=(6, 4))
+        pkb_cols = ("id", "category", "title")
+        self.pkb_tree = ttk.Treeview(tab_pkb, columns=pkb_cols, show="headings", height=14)
+        for col, text, width, anchor in (
+            ("id", "编号", 86, "center"),
+            ("category", "分类", 74, "center"),
+            ("title", "标题", 220, "w"),
+        ):
+            self.pkb_tree.heading(col, text=text)
+            self.pkb_tree.column(col, width=width, anchor=anchor, stretch=(col == "title"))
+        self.pkb_tree.pack(fill="both", expand=True, padx=8, pady=(0, 6))
+        self.pkb_tree.bind("<Double-1>", self._show_entry_detail)
+        self._load_pkb_tree()
 
+    # ================= 状态栏 =================
     def _build_statusbar(self) -> None:
         bar = tk.Frame(self, bg="#EDF1F7", height=28)
         bar.pack(side="bottom", fill="x")
@@ -432,7 +437,7 @@ class FaultAgentApp(tk.Tk):
             anchor="w",
         ).pack(side="left", padx=14)
         self.kb_var = tk.StringVar(
-            value=f"案例 {len(self.agent.kb)} 条 · 工程知识 {len(getattr(self.agent, 'project_kb', []) or [])} 条"
+            value=f"案例 {len(self.agent.kb)} 条 · 设备类型 {len(self.agent.kb.equipment_names())} 类"
             + (f" · {self.agent.kb.load_error}" if self.agent.kb.load_error else "")
         )
         tk.Label(
@@ -628,7 +633,7 @@ class FaultAgentApp(tk.Tk):
 
     def _load_pkb_tree(self) -> None:
         pkb = getattr(self.agent, "project_kb", None)
-        if pkb is None:
+        if pkb is None or not hasattr(self, "pkb_tree"):
             return
         category_names = {c["id"]: c["name"] for c in pkb.category_stats()}
         for entry in pkb.entries:
@@ -817,7 +822,7 @@ class FaultAgentApp(tk.Tk):
             self.agent = Agent(self.settings)
             self.mode_var.set(self._mode_text())
             self.kb_var.set(
-                f"案例 {len(self.agent.kb)} 条 · 工程知识 {len(self.agent.project_kb)} 条"
+                f"案例 {len(self.agent.kb)} 条 · 设备类型 {len(self.agent.kb.equipment_names())} 类"
             )
             try:
                 self.pkb_tree.delete(*self.pkb_tree.get_children())
@@ -870,7 +875,7 @@ class FaultAgentApp(tk.Tk):
     def show_about(self) -> None:
         messagebox.showinfo(
             "关于",
-            "设备故障咨询 Agent  v2.0.0\n\n"
+            "设备故障咨询 Agent  v2.2.0\n\n"
             "技术栈：Python 3.10+ / Tkinter / urllib（零第三方依赖）\n"
             "能力：本地 JSON 知识库检索、工具调用可追溯、在线 LLM 与离线规则双模式\n\n"
             "安全声明：本程序只查询本地模拟案例库，不连接真实工业设备，\n"
