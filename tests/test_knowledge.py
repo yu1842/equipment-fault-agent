@@ -37,6 +37,7 @@ class TestKnowledgeBase(unittest.TestCase):
         self.assertGreater(hits[0].score, 0.4)
 
     def test_search_uncovered_returns_empty(self):
+        # 负例必须选“库外设备”：一旦为它补了案例，本用例就会变成假失败
         hits = self.kb.search("数控冲床送料机构卡料", top_k=3)
         self.assertEqual(hits, [])
 
