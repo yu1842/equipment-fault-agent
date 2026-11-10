@@ -18,6 +18,7 @@ from pathlib import Path
 from .knowledge import bigrams, dice, normalize
 
 CATEGORY_ORDER = (
+    "guide",
     "architecture",
     "module",
     "api",
@@ -37,18 +38,24 @@ class KBEntry:
     category: str
     title: str
     summary: str
-    details: str = ""
+    symbol: str = ""
+    signature: str = ""
+    aliases: list[str] = field(default_factory=list)
+    background: str = ""
     when_to_use: list[str] = field(default_factory=list)
     inputs: list[dict] = field(default_factory=list)
     outputs: str = ""
+    steps: list[str] = field(default_factory=list)
     scenarios: list[str] = field(default_factory=list)
     cautions: list[str] = field(default_factory=list)
+    troubleshooting: list[dict] = field(default_factory=list)
+    best_practices: list[str] = field(default_factory=list)
+    related: list[str] = field(default_factory=list)
     scope: str = ""
     version: str = ""
     tags: list[str] = field(default_factory=list)
     refs: list[str] = field(default_factory=list)
-    symbol: str = ""
-    signature: str = ""
+    details: str = ""
 
     @classmethod
     def from_dict(cls, raw: dict) -> "KBEntry":
@@ -57,18 +64,24 @@ class KBEntry:
             category=str(raw.get("category", "")).strip(),
             title=str(raw.get("title", "")).strip(),
             summary=str(raw.get("summary", "")).strip(),
-            details=str(raw.get("details", "")).strip(),
+            symbol=str(raw.get("symbol", "")).strip(),
+            signature=str(raw.get("signature", "")).strip(),
+            aliases=[str(x) for x in raw.get("aliases", []) if str(x).strip()],
+            background=str(raw.get("background", "")).strip(),
             when_to_use=[str(x) for x in raw.get("when_to_use", []) if str(x).strip()],
             inputs=[x for x in raw.get("inputs", []) if isinstance(x, dict)],
             outputs=str(raw.get("outputs", "")).strip(),
+            steps=[str(x) for x in raw.get("steps", []) if str(x).strip()],
             scenarios=[str(x) for x in raw.get("scenarios", []) if str(x).strip()],
             cautions=[str(x) for x in raw.get("cautions", []) if str(x).strip()],
+            troubleshooting=[x for x in raw.get("troubleshooting", []) if isinstance(x, dict)],
+            best_practices=[str(x) for x in raw.get("best_practices", []) if str(x).strip()],
+            related=[str(x) for x in raw.get("related", []) if str(x).strip()],
             scope=str(raw.get("scope", "")).strip(),
             version=str(raw.get("version", "")).strip(),
             tags=[str(x) for x in raw.get("tags", []) if str(x).strip()],
             refs=[str(x) for x in raw.get("refs", []) if str(x).strip()],
-            symbol=str(raw.get("symbol", "")).strip(),
-            signature=str(raw.get("signature", "")).strip(),
+            details=str(raw.get("details", "")).strip(),
         )
 
     def to_dict(self) -> dict:
@@ -77,18 +90,24 @@ class KBEntry:
             "category": self.category,
             "title": self.title,
             "summary": self.summary,
-            "details": self.details,
+            "symbol": self.symbol,
+            "signature": self.signature,
+            "aliases": self.aliases,
+            "background": self.background,
             "when_to_use": self.when_to_use,
             "inputs": self.inputs,
             "outputs": self.outputs,
+            "steps": self.steps,
             "scenarios": self.scenarios,
             "cautions": self.cautions,
+            "troubleshooting": self.troubleshooting,
+            "best_practices": self.best_practices,
+            "related": self.related,
             "scope": self.scope,
             "version": self.version,
             "tags": self.tags,
             "refs": self.refs,
-            "symbol": self.symbol,
-            "signature": self.signature,
+            "details": self.details,
         }
 
     def to_brief(self, rank: int, score: float, matched: list[str]) -> dict:
@@ -101,6 +120,7 @@ class KBEntry:
             "scope": self.scope,
             "score": round(score, 3),
             "matched": matched[:6],
+            "related": self.related[:4],
         }
 
 
@@ -224,9 +244,30 @@ class ProjectKB:
                     matched.append(tag)
                     tag_hits += 1
 
-            # 3) 标题与正文的字符级相似度
-            score += dice(q_grams, bigrams(entry.title)) * 0.45
-            score += dice(q_grams, bigrams(entry.summary + entry.details)) * 0.25
+            # 3) 别名命中：用户口语与正式术语不一致时靠它兜住
+            alias_hits = 0
+            for alias in entry.aliases:
+                key = normalize(alias)
+                if len(key) >= 2 and key in text and alias_hits < 2:
+                    score += 0.26
+                    matched.append(alias)
+                    alias_hits += 1
+
+            # 4) 标题/摘要的字符级相似度
+            title_sim = dice(q_grams, bigrams(entry.title))
+            summary_sim = dice(q_grams, bigrams(entry.summary))
+            score += max(title_sim, summary_sim) * 0.45
+
+            # 5) 排障症状命中：用户描述症状时，直接对上"现象"字段
+            symptom_sim = 0.0
+            for item in entry.troubleshooting:
+                symptom_sim = max(symptom_sim, dice(q_grams, bigrams(str(item.get("symptom", "")))))
+            if symptom_sim >= 0.25:
+                score += 0.30
+                matched.append("排障症状")
+
+            # 6) 背景与说明的整体相似度，权重较低，避免长文本稀释
+            score += dice(q_grams, bigrams(entry.background + entry.details)) * 0.12
 
             if score <= 0:
                 continue
@@ -236,3 +277,39 @@ class ProjectKB:
 
         hits.sort(key=lambda h: (-h.score, h.entry.id))
         return hits[: max(1, min(5, top_k))]
+
+    # ---------- 导航与统计 ----------
+
+    def related_entries(self, entry: KBEntry) -> list[KBEntry]:
+        """按 related 字段取关联条目，保持声明顺序，忽略已失效编号。"""
+        found: list[KBEntry] = []
+        for rid in entry.related:
+            target = self.get(rid)
+            if target is not None:
+                found.append(target)
+        return found
+
+    def stats(self) -> dict:
+        total = len(self.entries)
+        if not total:
+            return {"entries": 0, "categories": 0, "avg_related": 0.0, "coverage": {}}
+        coverage = {
+            name: sum(1 for e in self.entries if getattr(e, name))
+            for name in (
+                "background",
+                "when_to_use",
+                "steps",
+                "troubleshooting",
+                "best_practices",
+                "related",
+                "aliases",
+            )
+        }
+        return {
+            "entries": total,
+            "categories": len(self.category_stats()),
+            "avg_related": round(sum(len(e.related) for e in self.entries) / total, 2),
+            "coverage": {k: round(v / total, 3) for k, v in coverage.items()},
+            "troubleshooting_items": sum(len(e.troubleshooting) for e in self.entries),
+            "steps_items": sum(len(e.steps) for e in self.entries),
+        }

@@ -307,7 +307,11 @@ class ToolRegistry:
         entry = self.project_kb.get(entry_id)
         if entry is None:
             raise ToolError(f"知识条目不存在：{entry_id or '(空)'}")
-        return {"ok": True, "entry": entry.to_dict()}
+        related = [
+            {"entry_id": item.id, "title": item.title, "category": item.category}
+            for item in self.project_kb.related_entries(entry)
+        ]
+        return {"ok": True, "entry": entry.to_dict(), "related": related}
 
     def _list_kb_categories(self) -> dict:
         if self.project_kb is None:

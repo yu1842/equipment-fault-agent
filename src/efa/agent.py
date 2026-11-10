@@ -48,7 +48,8 @@ PROJECT_HINTS = (
     "数据结构", "架构", "分层", "代码", "源码", "实现", "依赖", "标准库", "第三方",
     "日志", "线程", "队列", "异常处理", "错误码", "扩展", "新增", "重构", "目录",
     "规范", "约定", "入口", "命令行", "项目", "部署", "服务化", "多用户", "数据库",
-    "版本", "单元测试", "文档", "api", "sdk",
+    "版本", "单元测试", "文档", "程序", "软件", "功能", "安装", "报错", "排查",
+    "界面", "启动", "api", "sdk",
 )
 FAULT_HINTS = (
     "故障", "维修", "检修", "报警", "停机", "异响", "振动", "漏油", "渗漏", "过热",
@@ -333,6 +334,9 @@ class Agent:
         if entry.get("summary"):
             lines.append(f"【结论】{entry['summary']}")
             lines.append("")
+        if entry.get("background"):
+            lines.append(f"【背景】{entry['background']}")
+            lines.append("")
         if entry.get("signature"):
             lines.append(f"【签名/字段】{entry['signature']}")
             lines.append("")
@@ -348,6 +352,10 @@ class Agent:
         if entry.get("outputs"):
             lines.append(f"【输出】{entry['outputs']}")
             lines.append("")
+        if entry.get("steps"):
+            lines.append("【实操步骤】")
+            lines.extend(f"{i}. {s}" for i, s in enumerate(entry["steps"][:5], 1))
+            lines.append("")
         if entry.get("when_to_use"):
             lines.append("【什么时候用】")
             lines.extend(f"- {item}" for item in entry["when_to_use"][:4])
@@ -356,8 +364,21 @@ class Agent:
             lines.append("【注意事项】")
             lines.extend(f"- {item}" for item in entry["cautions"][:4])
             lines.append("")
+        if entry.get("troubleshooting"):
+            lines.append("【常见问题排查】")
+            for item in entry["troubleshooting"][:3]:
+                lines.append(f"- 现象：{item.get('symptom')}｜检查：{item.get('check')}｜处理：{item.get('fix')}")
+            lines.append("")
+        if entry.get("best_practices"):
+            lines.append("【最佳实践】")
+            lines.extend(f"- {item}" for item in entry["best_practices"][:4])
+            lines.append("")
         if entry.get("details"):
             lines.append(f"【说明】{entry['details']}")
+            lines.append("")
+        related = detail.get("related") or []
+        if related:
+            lines.append("【相关条目】" + "、".join(f"{r['entry_id']} {r['title']}" for r in related[:5]))
             lines.append("")
         lines.append(
             f"【适用范围】{entry.get('scope', '-')}｜版本 {entry.get('version', '-')}"

@@ -26,16 +26,40 @@ REQUIRED_FIELDS = (
     "title",
     "summary",
     "details",
+    "aliases",
+    "background",
     "when_to_use",
     "inputs",
     "outputs",
+    "steps",
     "scenarios",
     "cautions",
+    "troubleshooting",
+    "best_practices",
+    "related",
     "scope",
     "version",
     "tags",
     "refs",
 )
+
+# 条目编号前缀与分类必须一致，避免检索过滤时对不上
+ID_PREFIX = {
+    "KB-GUIDE": "guide",
+    "KB-ARCH": "architecture",
+    "KB-MOD": "module",
+    "KB-API": "api",
+    "KB-TOOL": "tool",
+    "KB-DATA": "data",
+    "KB-CFG": "config",
+    "KB-ERR": "error",
+    "KB-DEP": "dependency",
+    "KB-CONV": "convention",
+    "KB-BND": "boundary",
+}
+
+PLACEHOLDER_WORDS = ("TODO:", "待补充", "待完善", "示例文本", "暂无内容", "占位符", "TBD")
+VERSION_PATTERN = re.compile(r"^>=\d+\.\d+\.\d+$")
 
 
 @dataclass
@@ -259,10 +283,92 @@ def verify(project_root: str | Path) -> tuple[list[Issue], dict]:
                     Issue("E", "STALE_NUMBER", f"{entry.get('id')} 写“{equip_claim.group(0)}”，实际 {actual} 类")
                 )
 
-    summary = {
+    # 8. 标准化与信息粒度
+    ids = {str(e.get("id")) for e in entries}
+    titles: dict[str, str] = {}
+    for entry in entries:
+        eid = str(entry.get("id", "?"))
+
+        prefix = eid.rsplit("-", 1)[0]
+        expected = ID_PREFIX.get(prefix)
+        if expected is None:
+            issues.append(Issue("E", "BAD_ID_PREFIX", f"{eid} 的编号前缀不在约定表内"))
+        elif expected != entry.get("category"):
+            issues.append(
+                Issue("E", "ID_CATEGORY_MISMATCH", f"{eid} 前缀应为 {expected}，实际分类 {entry.get('category')}")
+            )
+
+        title = str(entry.get("title", ""))
+        key = title.strip()
+        if key in titles:
+            issues.append(Issue("E", "DUP_TITLE", f"{eid} 与 {titles[key]} 标题重复：{key}"))
+        titles[key] = eid
+        if not (6 <= len(title) <= 40):
+            issues.append(Issue("W", "TITLE_LENGTH", f"{eid} 标题长度 {len(title)}，建议 6~40 字"))
+
+        summary = str(entry.get("summary", ""))
+        if not (12 <= len(summary) <= 90):
+            issues.append(Issue("W", "SUMMARY_LENGTH", f"{eid} 摘要长度 {len(summary)}，建议 12~90 字"))
+
+        if len(str(entry.get("background", ""))) < 12:
+            issues.append(Issue("W", "BACKGROUND_THIN", f"{eid} 背景说明过短，缺少设计动机"))
+
+        if not VERSION_PATTERN.match(str(entry.get("version", ""))):
+            issues.append(Issue("E", "BAD_VERSION", f"{eid} 版本约束 {entry.get('version')!r} 应为 >=x.y.z"))
+
+        for name, low, high in (
+            ("aliases", 2, 6),
+            ("steps", 2, 6),
+            ("cautions", 1, 6),
+            ("best_practices", 2, 5),
+            ("tags", 3, 8),
+            ("related", 2, 10),
+        ):
+            count = len(entry.get(name) or [])
+            if count < low:
+                issues.append(Issue("W", "TOO_FEW", f"{eid} 的 {name} 只有 {count} 条，建议至少 {low} 条"))
+            elif count > high:
+                issues.append(Issue("W", "TOO_MANY", f"{eid} 的 {name} 有 {count} 条，建议不超过 {high} 条"))
+
+        for item in entry.get("troubleshooting") or []:
+            if not isinstance(item, dict):
+                issues.append(Issue("E", "BAD_TROUBLESHOOTING", f"{eid} 排障项应为对象"))
+                continue
+            for key_name in ("symptom", "check", "fix"):
+                if not str(item.get(key_name, "")).strip():
+                    issues.append(
+                        Issue("E", "BAD_TROUBLESHOOTING", f"{eid} 排障项缺少 {key_name}")
+                    )
+
+        for rid in entry.get("related") or []:
+            if rid == eid:
+                issues.append(Issue("E", "SELF_REFERENCE", f"{eid} 的 related 引用了自己"))
+            elif rid not in ids:
+                issues.append(Issue("E", "DANGLING_RELATED", f"{eid} 的 related 指向不存在的 {rid}"))
+            else:
+                target = next(e for e in entries if e.get("id") == rid)
+                if eid not in (target.get("related") or []):
+                    issues.append(
+                        Issue("W", "ASYMMETRIC_RELATED", f"{eid} 引用了 {rid}，但 {rid} 未回引")
+                    )
+
+        blob = " ".join(
+            [
+                title,
+                summary,
+                str(entry.get("background", "")),
+                str(entry.get("details", "")),
+                " ".join(str(x) for x in entry.get("steps", [])),
+            ]
+        )
+        for word in PLACEHOLDER_WORDS:
+            if word in blob:
+                issues.append(Issue("E", "PLACEHOLDER", f"{eid} 含占位词 {word}"))
+
+    summary_info = {
         "entries": len(entries),
         "categories": len(categories),
         "errors": sum(1 for i in issues if i.level == "E"),
         "warnings": sum(1 for i in issues if i.level == "W"),
     }
-    return issues, summary
+    return issues, summary_info
