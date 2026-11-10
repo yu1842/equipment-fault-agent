@@ -37,7 +37,7 @@ class TestKnowledgeBase(unittest.TestCase):
         self.assertGreater(hits[0].score, 0.4)
 
     def test_search_uncovered_returns_empty(self):
-        hits = self.kb.search("注塑机模具冷却水路堵塞", top_k=3)
+        hits = self.kb.search("数控冲床送料机构卡料", top_k=3)
         self.assertEqual(hits, [])
 
     def test_search_empty_query(self):

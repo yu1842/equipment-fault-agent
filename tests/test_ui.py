@@ -31,11 +31,12 @@ class TestMainWindow(unittest.TestCase):
     def test_kb_tree_matches_knowledge_base(self):
         self.assertEqual(len(self.app.kb_tree.get_children()), len(self.app.agent.kb))
 
-    def test_project_kb_tree_matches_entries(self):
-        self.assertEqual(
-            len(self.app.pkb_tree.get_children()), len(self.app.agent.project_kb)
-        )
-        self.assertGreater(len(self.app.pkb_tree.get_children()), 30)
+    def test_project_kb_tab_hidden(self):
+        """项目知识库已冻结并隐藏：页签不应出现在界面上。"""
+        from efa.ui.main_window import SHOW_PROJECT_KB
+
+        self.assertFalse(SHOW_PROJECT_KB)
+        self.assertFalse(hasattr(self.app, "pkb_tree"))
 
     def test_layout_has_positive_size(self):
         self.assertGreaterEqual(self.app.winfo_width(), 900)

@@ -37,7 +37,7 @@ class TestAgentOffline(unittest.TestCase):
         self.assertIn("query", first.arguments)
 
     def test_uncovered_question_admits_missing_basis(self):
-        answer = self.agent.ask("注塑机模具冷却水路堵塞，模温降不下来")
+        answer = self.agent.ask("数控冲床送料机构卡料，送不到位")
         self.assertIn("暂无该故障的案例依据", answer.text)
         self.assertNotIn("EFA-", answer.text.split("【判断】")[1].split("\n")[0])
 
