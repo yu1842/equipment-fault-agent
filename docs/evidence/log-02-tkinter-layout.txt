@@ -1,0 +1,13 @@
+复现命令：python tools/capture_evidence.py --case layout
+
+只调用 update_idletasks()：
+  winfo_width  = 1180
+  winfo_height = 760
+  chat 宽度     = 1   <- 子控件仍为 1，断言 'chat 宽度 > 100' 必失败
+
+补充调用 update() 后：
+  winfo_width  = 1180
+  winfo_height = 760
+  chat 尺寸     = 589 x 492
+  input 高度    = 73
+  结论：update() 触发窗口映射与几何计算后，控件才拿到真实尺寸

@@ -1,0 +1,7 @@
+复现命令：python tools/capture_evidence.py --case quotes
+写法 A（中文句子内用 ASCII 引号）：通过=False
+      TEXT = "检索结果为空时必须写"未收录"，不要臆造实现细节。"
+                                   ^^^^^^
+  SyntaxError: invalid syntax. Is this intended to be part of the string?
+写法 B（改用「」）：通过=True  stderr=（空）
+结论：中文正文里嵌 ASCII 双引号会提前闭合字符串；统一改用「」即可
