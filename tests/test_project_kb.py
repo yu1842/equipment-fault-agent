@@ -149,6 +149,76 @@ class TestContentCompleteness(unittest.TestCase):
         self.assertEqual(symptom_hits[0].entry.id, "KB-GUIDE-003")
 
 
+class TestIndexSync(unittest.TestCase):
+    """索引与数据必须同版本，且不改变检索结果。"""
+
+    def test_index_is_fresh(self):
+        kb = ProjectKB(KB_PATH)
+        self.assertEqual(kb.index_status, "fresh")
+        self.assertGreater(kb.stats()["index_terms"], 1000)
+
+    def test_index_matches_linear_search(self):
+        indexed = ProjectKB(KB_PATH)
+        linear = ProjectKB(KB_PATH)
+        linear._postings = None  # 强制线性扫描
+        for query in ("打不开程序怎么办", "配置优先级", "新增工具", "校验错误码", "日志格式"):
+            a = indexed.search(query, top_k=3)
+            b = linear.search(query, top_k=3)
+            self.assertEqual([h.entry.id for h in a], [h.entry.id for h in b], query)
+
+    def test_stale_index_is_detected(self):
+        tmp = Path(tempfile.mkdtemp(prefix="efa-index-"))
+        try:
+            shutil.copy(KB_PATH, tmp / "project_kb.json")
+            shutil.copy(DATA_DIR / "kb_index.json", tmp / "kb_index.json")
+            # 只改数据、不重建索引 -> 状态应为 stale，且仍能线性检索
+            raw = json.loads((tmp / "project_kb.json").read_text(encoding="utf-8"))
+            raw["updated_at"] = "2099-01-01"
+            (tmp / "project_kb.json").write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+            kb = ProjectKB(tmp / "project_kb.json")
+            self.assertEqual(kb.index_status, "stale")
+            self.assertIsNone(kb._postings)
+            self.assertTrue(kb.search("索引", top_k=1))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_missing_index_falls_back(self):
+        tmp = Path(tempfile.mkdtemp(prefix="efa-index-"))
+        try:
+            shutil.copy(KB_PATH, tmp / "project_kb.json")
+            kb = ProjectKB(tmp / "project_kb.json")
+            self.assertEqual(kb.index_status, "missing")
+            self.assertTrue(kb.search("异常降级", top_k=1))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
+class TestMaintenanceResult(unittest.TestCase):
+    """v2.1 维护结果：新增在、删除不在、全部可检索。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.kb = ProjectKB(KB_PATH)
+
+    def test_new_entries_present(self):
+        for eid in ("KB-API-014", "KB-DATA-007", "KB-ERR-005", "KB-CONV-006", "KB-DEP-005", "KB-GUIDE-007"):
+            self.assertIsNotNone(self.kb.get(eid), f"缺少新增条目 {eid}")
+
+    def test_deleted_entries_absent(self):
+        for eid in ("KB-DATA-002", "KB-DATA-005"):
+            self.assertIsNone(self.kb.get(eid), f"应已删除 {eid}，内容应并入目标条目")
+        merged = self.kb.get("KB-API-003")
+        self.assertIn("SearchHit", " ".join(merged.aliases) + merged.outputs)
+
+    def test_every_entry_searchable(self):
+        missing = []
+        for entry in self.kb.entries:
+            hits = self.kb.search(entry.title, top_k=1)
+            if not hits or hits[0].entry.id != entry.id:
+                missing.append(entry.id)
+        self.assertEqual(missing, [], f"以下条目用标题检索不到自己：{missing}")
+
+
 class TestConsistencyWithCode(unittest.TestCase):
     def test_no_drift_in_repository(self):
         issues, summary = verify(ROOT)
