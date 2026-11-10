@@ -128,6 +128,33 @@ class TestProjectTools(unittest.TestCase):
         result, _ = plain.execute("search_project_kb", {"query": "配置"})
         self.assertFalse(result["ok"])
 
+    # ---------- 参数清洗（v2.2.2 修复） ----------
+
+    def test_extra_argument_does_not_fail_call(self):
+        """模型多带一个自解释字段时，不得让整个检索失败。"""
+        result, record = self.registry.execute(
+            "search_fault_cases", {"query": "液压站压力上不去", "reason": "先检索案例"}
+        )
+        self.assertTrue(record.ok, result)
+        self.assertGreater(result["hit_count"], 0)
+        self.assertEqual(result["ignored_arguments"], ["reason"])
+
+    def test_argument_alias_is_mapped(self):
+        """同义参数名（q / limit / case）应被改名后正常执行。"""
+        result, record = self.registry.execute("search_fault_cases", {"q": "液压站压力上不去"})
+        self.assertTrue(record.ok, result)
+        self.assertEqual(result["query"], "液压站压力上不去")
+        self.assertNotIn("ignored_arguments", result)
+
+        detail, _ = self.registry.execute("get_case_detail", {"case": "efa-001"})
+        self.assertEqual(detail["case"]["id"], "EFA-001")
+
+    def test_missing_required_argument_still_fails(self):
+        """清洗只丢弃多余键，缺少必填内容仍要报错，不能静默放行。"""
+        result, record = self.registry.execute("search_fault_cases", {"reason": "忘了写 query"})
+        self.assertFalse(record.ok)
+        self.assertIn("检索关键词为空", result["error"])
+
 
 if __name__ == "__main__":
     unittest.main()

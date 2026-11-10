@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import time
 from dataclasses import dataclass, field
@@ -41,6 +42,29 @@ class ToolCallRecord:
 
 class ToolError(Exception):
     """工具执行失败（参数错误、目标不存在等）。"""
+
+
+# 模型常把参数写成同义名（q / question / case / limit…）。这些键在调用前统一改名，
+# 未识别的键则丢弃并回传给模型，而不是让整次调用失败。
+ARG_ALIASES = {
+    "q": "query",
+    "question": "query",
+    "keyword": "query",
+    "keywords": "query",
+    "text": "query",
+    "query_text": "query",
+    "case": "case_id",
+    "case_no": "case_id",
+    "case_number": "case_id",
+    "id": "case_id",
+    "k": "top_k",
+    "limit": "top_k",
+    "count": "top_k",
+    "category_id": "category",
+    "entry": "entry_id",
+    "entryId": "entry_id",
+    "kb_id": "entry_id",
+}
 
 
 class ToolRegistry:
@@ -212,8 +236,12 @@ class ToolRegistry:
             return payload, ToolCallRecord(name, arguments, False, elapsed, payload["error"])
 
         try:
+            arguments, ignored = self._normalize_arguments(fn, arguments)
             result = fn(**arguments)
             ok = True
+            if ignored:
+                # 不丢弃信息：模型能从回包看到自己多传了什么，下一轮可自行纠正
+                result = {**result, "ignored_arguments": ignored}
             summary = self._summarize(name, result)
         except ToolError as exc:
             result = {"ok": False, "error": str(exc)}
@@ -233,6 +261,29 @@ class ToolRegistry:
         return result, record
 
     # ---------- 具体实现 ----------
+
+    @staticmethod
+    def _normalize_arguments(fn: Callable[..., dict], arguments: dict) -> tuple[dict, list[str]]:
+        """按函数签名清洗参数：同义名改名、未识别键丢弃。
+
+        背景：模型经常多带一个自解释字段（reason / explanation）或用同义名（q、case、limit）。
+        早先直接把 arguments 全量展开到 fn(**arguments)，一个多余键就抛 TypeError，
+        整次检索被判失败——对诊断类 Agent 来说等于主动放弃证据，必须避免。
+        """
+        names = [
+            p.name
+            for p in inspect.signature(fn).parameters.values()
+            if p.kind in (p.POSITIONAL_OR_KEYWORD, p.KEYWORD_ONLY)
+        ]
+        cleaned: dict = {}
+        ignored: list[str] = []
+        for key, value in arguments.items():
+            target = ARG_ALIASES.get(key, key)
+            if target in names:
+                cleaned.setdefault(target, value)
+            else:
+                ignored.append(str(key))
+        return cleaned, ignored
 
     def _search_fault_cases(self, query: str = "", top_k: int | None = None) -> dict:
         query = (query or "").strip()
