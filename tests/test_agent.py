@@ -64,6 +64,47 @@ class TestAgentOffline(unittest.TestCase):
         self.assertEqual(self.agent.history, [])
 
 
+class TestAgentRouting(unittest.TestCase):
+    def test_route_engineering_question(self):
+        for question in (
+            "新增一个工具要改哪些文件",
+            "ToolRegistry 怎么扩展",
+            "Settings 的配置优先级",
+            "有哪些环境变量",
+        ):
+            self.assertEqual(Agent.route(question), "project", question)
+
+    def test_route_fault_question(self):
+        for question in (
+            "液压站压力上不去",
+            "空压机排气温度过高报警",
+            "设备异常振动，轴承温度高",
+            "皮带输送机跑偏怎么办",
+        ):
+            self.assertEqual(Agent.route(question), "fault", question)
+
+    def test_offline_engineering_answer_uses_project_kb(self):
+        agent = Agent(offline_settings())
+        answer = agent.ask("新增一个工具要改哪些地方")
+        self.assertEqual(answer.mode, "offline")
+        self.assertIn("项目知识库", answer.text)
+        self.assertIn("KB-", answer.text)
+        self.assertEqual(answer.tool_records[0].name, "search_project_kb")
+        self.assertTrue(all(r.ok for r in answer.tool_records))
+        self.assertTrue(any(cid.startswith("KB-") for cid in answer.citations))
+
+    def test_offline_engineering_unknown_admits_missing(self):
+        agent = Agent(offline_settings())
+        answer = agent.ask("这个项目支持分布式部署吗？集群怎么配？")
+        self.assertIn("未收录", answer.text)
+
+    def test_fault_question_still_uses_case_kb(self):
+        agent = Agent(offline_settings())
+        answer = agent.ask("液压站压力上不去")
+        self.assertEqual(answer.tool_records[0].name, "search_fault_cases")
+        self.assertIn("EFA-001", answer.text)
+
+
 class TestAgentOnlineFallback(unittest.TestCase):
     """配置了无法连接的接口时，必须自动降级且仍然给出有依据的回答。"""
 

@@ -31,6 +31,12 @@ class TestMainWindow(unittest.TestCase):
     def test_kb_tree_matches_knowledge_base(self):
         self.assertEqual(len(self.app.kb_tree.get_children()), len(self.app.agent.kb))
 
+    def test_project_kb_tree_matches_entries(self):
+        self.assertEqual(
+            len(self.app.pkb_tree.get_children()), len(self.app.agent.project_kb)
+        )
+        self.assertGreater(len(self.app.pkb_tree.get_children()), 30)
+
     def test_layout_has_positive_size(self):
         self.assertGreaterEqual(self.app.winfo_width(), 900)
         self.assertGreater(self.app.chat.winfo_width(), 300)
