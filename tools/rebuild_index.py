@@ -1,6 +1,7 @@
 """重建知识库倒排索引（案例库 + 项目知识库）。
 
-    python tools/rebuild_index.py           # 重建两个索引
+    python tools/rebuild_index.py           # 重建两个索引（已最新的会跳过）
+    python tools/rebuild_index.py --force   # 强制重建
     python tools/rebuild_index.py --check   # 只检查索引是否与数据同步
 
 数据改动后必须执行一次，否则加载方会标记 stale 并退回线性扫描
@@ -42,6 +43,10 @@ def main() -> int:
                 failed += 1
             else:
                 print(f"{name}：索引同步（{data['entries']} 条 / {data['terms']} 个索引词，建于 {data['built_at']}）")
+            continue
+
+        if data is not None and data.get("kb_hash") == current and "--force" not in sys.argv:
+            print(f"{name}：已是最新，跳过（{data['entries']} 条 / {data['terms']} 个索引词）")
             continue
 
         index = builder(data_path)
